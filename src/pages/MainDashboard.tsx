@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { TrendingUp, DollarSign, FileText, CreditCard, Calendar, TrendingDown, Activity, PieChart as PieChartIcon } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { transactionsAPI, invoicesAPI, loansAPI } from "@/integrations/mongodb/api";
 import { useState, useEffect } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { motion } from 'framer-motion';
@@ -23,106 +23,101 @@ const MainDashboard = () => {
     if (user) {
       fetchDashboardData();
       
-      // Subscribe to realtime updates
-      const channels = [
-        supabase.channel('dashboard-transactions').on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'transactions', filter: `user_id=eq.${user.id}` },
-          () => fetchDashboardData()
-        ).subscribe(),
-        supabase.channel('dashboard-invoices').on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'invoices', filter: `user_id=eq.${user.id}` },
-          () => fetchDashboardData()
-        ).subscribe(),
-        supabase.channel('dashboard-loans').on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'loans', filter: `user_id=eq.${user.id}` },
-          () => fetchDashboardData()
-        ).subscribe(),
-      ];
+      // Poll for updates every 3 seconds for better real-time feel
+      const interval = setInterval(() => {
+        fetchDashboardData();
+      }, 3000);
 
-      return () => { channels.forEach(ch => supabase.removeChannel(ch)); };
+      return () => clearInterval(interval);
     }
+  }, [user]);
+
+  // Also refresh when window gains focus (user switches back to tab)
+  useEffect(() => {
+    const handleFocus = () => {
+      if (user) {
+        fetchDashboardData();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [user]);
 
   const fetchDashboardData = async () => {
     if (!user) return;
 
-    // Fetch transactions
-    const { data: transactions } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.id);
+    try {
+      // Fetch transactions
+      const transactions = await transactionsAPI.getAll();
 
-    if (transactions) {
-      const income = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + Number(t.amount), 0);
-      const expenses = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0);
-      setTotalIncome(income);
-      setTotalExpenses(expenses);
-      setRecentTransactions(transactions.slice(0, 5));
+      if (transactions) {
+        const income = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + Number(t.amount), 0);
+        const expenses = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0);
+        setTotalIncome(income);
+        setTotalExpenses(expenses);
+        setRecentTransactions(transactions.slice(0, 5));
 
-      // Category breakdown
-      const categoryMap = new Map();
-      transactions.filter(t => t.type === 'expense').forEach(t => {
-        categoryMap.set(t.category, (categoryMap.get(t.category) || 0) + Number(t.amount));
-      });
-      setCategoryData(Array.from(categoryMap, ([name, value]) => ({ name, value })));
+        // Category breakdown
+        const categoryMap = new Map();
+        transactions.filter(t => t.type === 'expense').forEach(t => {
+          categoryMap.set(t.category, (categoryMap.get(t.category) || 0) + Number(t.amount));
+        });
+        setCategoryData(Array.from(categoryMap, ([name, value]) => ({ name, value })));
 
-      // Monthly data
-      const monthMap = new Map();
-      transactions.forEach(t => {
-        const month = new Date(t.date).toLocaleDateString('en-US', { month: 'short' });
-        if (!monthMap.has(month)) {
-          monthMap.set(month, { month, income: 0, expenses: 0 });
-        }
-        const data = monthMap.get(month);
-        if (t.type === 'income') data.income += Number(t.amount);
-        else data.expenses += Number(t.amount);
-      });
-      setMonthlyData(Array.from(monthMap.values()));
+        // Monthly data
+        const monthMap = new Map();
+        transactions.forEach(t => {
+          const month = new Date(t.date).toLocaleDateString('en-US', { month: 'short' });
+          if (!monthMap.has(month)) {
+            monthMap.set(month, { month, income: 0, expenses: 0 });
+          }
+          const data = monthMap.get(month);
+          if (t.type === 'income') data.income += Number(t.amount);
+          else data.expenses += Number(t.amount);
+        });
+        setMonthlyData(Array.from(monthMap.values()));
 
-      // Weekly data for area chart
-      const weekMap = new Map();
-      transactions.forEach(t => {
-        const week = `Week ${Math.ceil(new Date(t.date).getDate() / 7)}`;
-        if (!weekMap.has(week)) {
-          weekMap.set(week, { week, amount: 0 });
-        }
-        const data = weekMap.get(week);
-        if (t.type === 'income') data.amount += Number(t.amount);
-      });
-      setWeeklyData(Array.from(weekMap.values()));
-    }
+        // Weekly data for area chart
+        const weekMap = new Map();
+        transactions.forEach(t => {
+          const week = `Week ${Math.ceil(new Date(t.date).getDate() / 7)}`;
+          if (!weekMap.has(week)) {
+            weekMap.set(week, { week, amount: 0 });
+          }
+          const data = weekMap.get(week);
+          if (t.type === 'income') data.amount += Number(t.amount);
+        });
+        setWeeklyData(Array.from(weekMap.values()));
+      }
 
-    // Fetch invoices
-    const { data: invoices } = await supabase
-      .from('invoices')
-      .select('*')
-      .eq('user_id', user.id);
-    if (invoices) {
-      setTotalInvoices(invoices.reduce((sum, inv) => sum + Number(inv.amount), 0));
-      
-      // Invoice status breakdown
-      const statusMap = new Map();
-      invoices.forEach(inv => {
-        statusMap.set(inv.status, (statusMap.get(inv.status) || 0) + 1);
-      });
-      setInvoiceStatusData(Array.from(statusMap, ([name, value]) => ({ name, value })));
-    }
+      // Fetch invoices
+      const invoices = await invoicesAPI.getAll();
+      if (invoices) {
+        setTotalInvoices(invoices.reduce((sum, inv) => sum + Number(inv.amount), 0));
+        
+        // Invoice status breakdown
+        const statusMap = new Map();
+        invoices.forEach(inv => {
+          statusMap.set(inv.status, (statusMap.get(inv.status) || 0) + 1);
+        });
+        setInvoiceStatusData(Array.from(statusMap, ([name, value]) => ({ name, value })));
+      }
 
-    // Fetch loans
-    const { data: loans } = await supabase
-      .from('loans')
-      .select('*')
-      .eq('user_id', user.id);
-    if (loans) {
-      setTotalLoans(loans.reduce((sum, loan) => sum + Number(loan.principal_amount), 0));
-      
-      // Loan distribution by name
-      const loanMap = loans.slice(0, 5).map(loan => ({
-        name: loan.loan_name,
-        amount: Number(loan.principal_amount),
-        payment: Number(loan.monthly_payment)
-      }));
-      setLoanDistribution(loanMap);
+      // Fetch loans
+      const loans = await loansAPI.getAll();
+      if (loans) {
+        setTotalLoans(loans.reduce((sum, loan) => sum + Number(loan.principal_amount), 0));
+        
+        // Loan distribution by name
+        const loanMap = loans.slice(0, 5).map(loan => ({
+          name: loan.loan_name,
+          amount: Number(loan.principal_amount),
+          payment: Number(loan.monthly_payment)
+        }));
+        setLoanDistribution(loanMap);
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
     }
   };
 

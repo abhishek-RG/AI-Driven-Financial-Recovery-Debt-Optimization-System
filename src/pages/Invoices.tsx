@@ -4,11 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { invoicesAPI } from "@/integrations/mongodb/api";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { emitFinancialDataUpdate } from "@/lib/realtime";
 
 interface Invoice {
   id: string;
@@ -36,30 +37,23 @@ const Invoices = () => {
     if (user) {
       fetchInvoices();
       
-      const channel = supabase
-        .channel('invoices-changes')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'invoices', filter: `user_id=eq.${user.id}` },
-          () => fetchInvoices()
-        )
-        .subscribe();
+      // Poll for updates every 5 seconds
+      const interval = setInterval(() => {
+        fetchInvoices();
+      }, 5000);
 
-      return () => { supabase.removeChannel(channel); };
+      return () => clearInterval(interval);
     }
   }, [user]);
 
   const fetchInvoices = async () => {
     if (!user) return;
-    const { data, error } = await supabase
-      .from('invoices')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('date', { ascending: false });
-    
-    if (error) {
+    try {
+      const data = await invoicesAPI.getAll();
+      setInvoices(data as Invoice[]);
+    } catch (error) {
+      console.error('Failed to fetch invoices:', error);
       toast.error('Failed to fetch invoices');
-    } else {
-      setInvoices((data as Invoice[]) || []);
     }
   };
 
@@ -67,31 +61,20 @@ const Invoices = () => {
     e.preventDefault();
     if (!user) return;
 
-    const { data, error } = await supabase.from('invoices').insert({
-      user_id: user.id,
-      invoice_number: formData.invoice_number,
-      client_name: formData.client_name,
-      date: formData.date,
-      due_date: formData.due_date,
-      amount: parseFloat(formData.amount),
-      status: formData.status
-    }).select('*').single();
+    try {
+      const data = await invoicesAPI.create({
+        invoice_number: formData.invoice_number,
+        client_name: formData.client_name,
+        date: formData.date,
+        due_date: formData.due_date,
+        amount: parseFloat(formData.amount),
+        status: formData.status
+      });
 
-    if (error) {
-      toast.error('Failed to add invoice');
-    } else {
       toast.success('Invoice added successfully');
-      if (data) {
-        setInvoices((prev) => [{
-          id: data.id,
-          invoice_number: data.invoice_number,
-          client_name: data.client_name,
-          date: data.date,
-          due_date: data.due_date,
-          amount: data.amount,
-          status: data.status,
-        }, ...prev]);
-      }
+      emitFinancialDataUpdate({ entity: 'invoice', action: 'create' });
+      // Immediately refresh to get latest data from backend
+      await fetchInvoices();
       setFormData({
         invoice_number: '',
         client_name: '',
@@ -100,15 +83,20 @@ const Invoices = () => {
         amount: '',
         status: 'pending'
       });
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to add invoice');
     }
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from('invoices').delete().eq('id', id);
-    if (error) {
-      toast.error('Failed to delete invoice');
-    } else {
+    try {
+      await invoicesAPI.delete(id);
       toast.success('Invoice deleted');
+      emitFinancialDataUpdate({ entity: 'invoice', action: 'delete' });
+      // Immediately refresh to get latest data
+      await fetchInvoices();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete invoice');
     }
   };
 

@@ -4,11 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { loansAPI } from "@/integrations/mongodb/api";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { emitFinancialDataUpdate } from "@/lib/realtime";
 
 interface Loan {
   id: string;
@@ -38,30 +39,23 @@ const Loans = () => {
     if (user) {
       fetchLoans();
       
-      const channel = supabase
-        .channel('loans-changes')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'loans', filter: `user_id=eq.${user.id}` },
-          () => fetchLoans()
-        )
-        .subscribe();
+      // Poll for updates every 5 seconds
+      const interval = setInterval(() => {
+        fetchLoans();
+      }, 5000);
 
-      return () => { supabase.removeChannel(channel); };
+      return () => clearInterval(interval);
     }
   }, [user]);
 
   const fetchLoans = async () => {
     if (!user) return;
-    const { data, error } = await supabase
-      .from('loans')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('start_date', { ascending: false });
-    
-    if (error) {
+    try {
+      const data = await loansAPI.getAll();
+      setLoans(data as Loan[]);
+    } catch (error) {
+      console.error('Failed to fetch loans:', error);
       toast.error('Failed to fetch loans');
-    } else {
-      setLoans((data as Loan[]) || []);
     }
   };
 
@@ -69,33 +63,21 @@ const Loans = () => {
     e.preventDefault();
     if (!user) return;
 
-    const { data, error } = await supabase.from('loans').insert({
-      user_id: user.id,
-      loan_name: formData.loan_name,
-      principal_amount: parseFloat(formData.principal_amount),
-      interest_rate: parseFloat(formData.interest_rate),
-      start_date: formData.start_date,
-      end_date: formData.end_date,
-      monthly_payment: parseFloat(formData.monthly_payment),
-      status: formData.status
-    }).select('*').single();
+    try {
+      const data = await loansAPI.create({
+        loan_name: formData.loan_name,
+        principal_amount: parseFloat(formData.principal_amount),
+        interest_rate: parseFloat(formData.interest_rate),
+        start_date: formData.start_date,
+        end_date: formData.end_date,
+        monthly_payment: parseFloat(formData.monthly_payment),
+        status: formData.status
+      });
 
-    if (error) {
-      toast.error('Failed to add loan');
-    } else {
       toast.success('Loan added successfully');
-      if (data) {
-        setLoans((prev) => [{
-          id: data.id,
-          loan_name: data.loan_name,
-          principal_amount: data.principal_amount,
-          interest_rate: data.interest_rate,
-          start_date: data.start_date,
-          end_date: data.end_date,
-          monthly_payment: data.monthly_payment,
-          status: data.status,
-        }, ...prev]);
-      }
+      emitFinancialDataUpdate({ entity: 'loan', action: 'create' });
+      // Immediately refresh to get latest data from backend
+      await fetchLoans();
       setFormData({
         loan_name: '',
         principal_amount: '',
@@ -105,15 +87,20 @@ const Loans = () => {
         monthly_payment: '',
         status: 'active'
       });
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to add loan');
     }
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from('loans').delete().eq('id', id);
-    if (error) {
-      toast.error('Failed to delete loan');
-    } else {
+    try {
+      await loansAPI.delete(id);
       toast.success('Loan deleted');
+      emitFinancialDataUpdate({ entity: 'loan', action: 'delete' });
+      // Immediately refresh to get latest data
+      await fetchLoans();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete loan');
     }
   };
 

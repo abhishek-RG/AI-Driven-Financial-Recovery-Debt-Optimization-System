@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { authAPI } from '@/integrations/mongodb/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { BarChart3 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 const Signup = () => {
   const navigate = useNavigate();
+  const { setUserState } = useAuth();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -25,24 +27,18 @@ const Signup = () => {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const result = await authAPI.signUp({
         email: formData.email,
         password: formData.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/home`,
-          data: {
-            first_name: formData.firstName,
-            last_name: formData.lastName,
-            company_name: formData.companyName,
-            phone_number: formData.phoneNumber,
-          },
-        },
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        companyName: formData.companyName,
+        phoneNumber: formData.phoneNumber,
       });
 
-      if (error) throw error;
-
+      setUserState(result.user);
       toast.success('Account created successfully!');
-      navigate('/home');
+      navigate('/home', { replace: true });
     } catch (error: any) {
       toast.error(error.message || 'Failed to create account');
     } finally {

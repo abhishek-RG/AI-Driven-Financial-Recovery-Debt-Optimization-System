@@ -44,7 +44,6 @@
     "@radix-ui/react-toggle": "^1.1.9",
     "@radix-ui/react-toggle-group": "^1.1.10",
     "@radix-ui/react-tooltip": "^1.2.7",
-    "@supabase/supabase-js": "^2.74.0",
     "@tanstack/react-query": "^5.83.0",
     "@types/papaparse": "^5.3.16",
     "class-variance-authority": "^0.7.1",
@@ -89,5 +88,18 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
     "vite": "^5.4.19"
-  }
+  },
+  "description": "",
+  "main": "eslint.config.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abhishek-RG/AI-Driven-Financial-Recovery-Debt-Optimization-System.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/abhishek-RG/AI-Driven-Financial-Recovery-Debt-Optimization-System/issues"
+  },
+  "homepage": "https://github.com/abhishek-RG/AI-Driven-Financial-Recovery-Debt-Optimization-System#readme"
 }

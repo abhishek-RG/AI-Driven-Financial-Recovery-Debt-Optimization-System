@@ -1,4 +1,4 @@
-import { supabase } from '@/integrations/supabase/client';
+import { financialRecordsAPI } from '@/integrations/mongodb/api';
 import { FinancialRecord } from './csvParser';
 
 export interface DBFinancialRecord {
@@ -98,47 +98,32 @@ const convertFromDBFormat = (dbRecord: DBFinancialRecord): FinancialRecord => {
 };
 
 export const saveFinancialRecords = async (records: FinancialRecord[], userId: string): Promise<void> => {
-  // First, delete existing records for this user
-  await supabase
-    .from('financial_records')
-    .delete()
-    .eq('user_id', userId);
-
-  // Insert new records
-  const dbRecords = records.map(record => convertToDBFormat(record, userId));
-  
-  const { error } = await supabase
-    .from('financial_records')
-    .insert(dbRecords);
-
-  if (error) {
+  try {
+    // Convert records to DB format
+    const dbRecords = records.map(record => convertToDBFormat(record, userId));
+    
+    // Save records (API handles deletion of existing records)
+    await financialRecordsAPI.save(dbRecords);
+  } catch (error) {
     console.error('Error saving financial records:', error);
     throw error;
   }
 };
 
 export const getFinancialRecords = async (userId: string): Promise<FinancialRecord[]> => {
-  const { data, error } = await supabase
-    .from('financial_records')
-    .select('*')
-    .eq('user_id', userId)
-    .order('date', { ascending: true });
-
-  if (error) {
+  try {
+    const data = await financialRecordsAPI.getAll();
+    return (data || []).map(convertFromDBFormat);
+  } catch (error) {
     console.error('Error fetching financial records:', error);
     throw error;
   }
-
-  return (data || []).map(convertFromDBFormat);
 };
 
 export const deleteFinancialRecords = async (userId: string): Promise<void> => {
-  const { error } = await supabase
-    .from('financial_records')
-    .delete()
-    .eq('user_id', userId);
-
-  if (error) {
+  try {
+    await financialRecordsAPI.delete();
+  } catch (error) {
     console.error('Error deleting financial records:', error);
     throw error;
   }

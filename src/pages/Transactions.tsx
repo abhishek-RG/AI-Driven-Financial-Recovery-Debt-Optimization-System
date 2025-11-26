@@ -4,10 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { transactionsAPI } from "@/integrations/mongodb/api";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
+import { emitFinancialDataUpdate } from "@/lib/realtime";
 
 interface Transaction {
   id: string;
@@ -33,31 +34,23 @@ const Transactions = () => {
     if (user) {
       fetchTransactions();
       
-      // Subscribe to realtime updates
-      const channel = supabase
-        .channel('transactions-changes')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'transactions', filter: `user_id=eq.${user.id}` },
-          () => fetchTransactions()
-        )
-        .subscribe();
+      // Poll for updates every 5 seconds (replaces realtime subscriptions)
+      const interval = setInterval(() => {
+        fetchTransactions();
+      }, 5000);
 
-      return () => { supabase.removeChannel(channel); };
+      return () => clearInterval(interval);
     }
   }, [user]);
 
   const fetchTransactions = async () => {
     if (!user) return;
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('date', { ascending: false });
-    
-    if (error) {
+    try {
+      const data = await transactionsAPI.getAll();
+      setTransactions(data as Transaction[]);
+    } catch (error) {
+      console.error('Failed to fetch transactions:', error);
       toast.error('Failed to fetch transactions');
-    } else {
-      setTransactions((data as Transaction[]) || []);
     }
   };
 
@@ -65,30 +58,19 @@ const Transactions = () => {
     e.preventDefault();
     if (!user) return;
 
-    const { data, error } = await supabase.from('transactions').insert({
-      user_id: user.id,
-      date: formData.date,
-      description: formData.description,
-      category: formData.category,
-      amount: parseFloat(formData.amount),
-      type: formData.type
-    }).select('*').single();
+    try {
+      const data = await transactionsAPI.create({
+        date: formData.date,
+        description: formData.description,
+        category: formData.category,
+        amount: parseFloat(formData.amount),
+        type: formData.type
+      });
 
-    if (error) {
-      toast.error('Failed to add transaction');
-    } else {
       toast.success('Transaction added successfully');
-      // Optimistically prepend to UI so it appears immediately
-      if (data) {
-        setTransactions((prev) => [{
-          id: data.id,
-          date: data.date,
-          description: data.description,
-          category: data.category,
-          amount: data.amount,
-          type: data.type,
-        }, ...prev]);
-      }
+      emitFinancialDataUpdate({ entity: 'transaction', action: 'create' });
+      // Immediately refresh to get latest data from backend
+      await fetchTransactions();
       setFormData({
         date: new Date().toISOString().split('T')[0],
         description: '',
@@ -96,15 +78,20 @@ const Transactions = () => {
         amount: '',
         type: 'expense'
       });
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to add transaction');
     }
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from('transactions').delete().eq('id', id);
-    if (error) {
-      toast.error('Failed to delete transaction');
-    } else {
+    try {
+      await transactionsAPI.delete(id);
       toast.success('Transaction deleted');
+      emitFinancialDataUpdate({ entity: 'transaction', action: 'delete' });
+      // Immediately refresh to get latest data
+      await fetchTransactions();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete transaction');
     }
   };
 

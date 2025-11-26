@@ -42,9 +42,16 @@ except Exception as e:
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:8080", "supports_credentials": True}})
+
+# Load environment variables
+cors_origin = os.getenv("CORS_ORIGIN", "http://localhost:8080")
+flask_host = os.getenv("FLASK_HOST", "0.0.0.0")
+flask_port = int(os.getenv("FLASK_PORT", "5000"))
+flask_debug = os.getenv("FLASK_DEBUG", "True").lower() == "true"
+
+CORS(app, resources={r"/*": {"origins": cors_origin, "supports_credentials": True}})
 app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24))
-app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['UPLOAD_FOLDER'] = os.getenv("UPLOAD_FOLDER", "uploads")
 app.config['STATIC_FOLDER'] = 'static'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['STATIC_FOLDER'], exist_ok=True)
@@ -828,4 +835,11 @@ if __name__ == '__main__':
             print("SUCCESS: Index deleted.")
     
     initialize_knowledge_base()
-    app.run(debug=True)
+    
+    # Use environment variables for Flask configuration
+    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    port = int(os.getenv("FLASK_PORT", "5000"))
+    debug = os.getenv("FLASK_DEBUG", "True").lower() == "true"
+    
+    print(f"🚀 Starting Flask server on {host}:{port} (debug={debug})")
+    app.run(host=host, port=port, debug=debug)

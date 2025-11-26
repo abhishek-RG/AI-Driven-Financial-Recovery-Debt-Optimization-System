@@ -11,3 +11,6 @@ pypdf
 pandas
 tabulate
 flask-cors
+matplotlib
+seaborn
+google-generativeai

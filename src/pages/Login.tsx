@@ -1,33 +1,32 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { authAPI } from '@/integrations/mongodb/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { BarChart3 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { setUserState } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'signin' | 'signup'>('signin');
+  const fromPath = (location.state as { from?: string } | null)?.from || '/home';
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) throw error;
-
+      const result = await authAPI.signIn(email, password);
+      setUserState(result.user);
       toast.success('Signed in successfully!');
-      navigate('/home');
+      navigate(fromPath, { replace: true });
     } catch (error: any) {
       toast.error(error.message || 'Failed to sign in');
     } finally {

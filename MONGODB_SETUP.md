@@ -47,7 +47,7 @@ npm install
 
    **For MongoDB Atlas:**
    ```env
-   MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/financial_recovery?retryWrites=true&w=majority
+   MONGODB_URI=your uri
    JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
    PORT=3001
    CORS_ORIGIN=http://localhost:5173
